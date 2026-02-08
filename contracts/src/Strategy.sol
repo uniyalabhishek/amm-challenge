@@ -7,25 +7,20 @@ import {IAMMStrategy, TradeInfo} from "./IAMMStrategy.sol";
 /// @title Adaptive Skew Strategy
 /// @notice Dynamic fee strategy that skews fees around an estimated fair price.
 contract Strategy is AMMStrategyBase {
-    uint256 private constant BASE_FEE = 6 * BPS; // 6 bps
-    uint256 private constant MAX_BASE_FEE = 60 * BPS; // soft cap for base fee
+    uint256 private constant LOW_FEE = 3 * BPS; // 3 bps
+    uint256 private constant HIGH_FEE = 45 * BPS; // 45 bps
     uint256 private constant MAX_FEE_CAP = 120 * BPS; // hard cap for returned fees
 
-    uint256 private constant LOW_STEP_ADJ = 4 * BPS;
-    uint256 private constant HIGH_STEP_ADJ = 10 * BPS;
-
-    uint256 private constant MAX_RISK = 20 * BPS;
-    uint256 private constant MAX_SKEW = 50 * BPS;
-    uint256 private constant MAX_SIZE_ADJ = 20 * BPS;
+    uint256 private constant MAX_RISK = 15 * BPS;
+    uint256 private constant MAX_SKEW = 40 * BPS;
 
     // Scale factors in WAD (1e18)
-    uint256 private constant RISK_SCALE = 1e18; // 1.0
-    uint256 private constant SKEW_SCALE = 2e18; // 2.0
-    uint256 private constant SIZE_SCALE = 6e17; // 0.6
+    uint256 private constant RISK_SCALE = 5e17; // 0.5
+    uint256 private constant SKEW_SCALE = 25e17; // 2.5
 
     // EMA weights in WAD
-    uint256 private constant ALPHA_NEW_STEP = 6e17; // 0.6
-    uint256 private constant ALPHA_SAME_STEP = 1e16; // 0.01
+    uint256 private constant ALPHA_NEW_STEP = 7e17; // 0.7
+    uint256 private constant ALPHA_SAME_STEP = 0; // 0.0
 
     function afterInitialize(uint256 initialX, uint256 initialY)
         external
@@ -34,10 +29,10 @@ contract Strategy is AMMStrategyBase {
     {
         uint256 spot = initialX == 0 ? 0 : wdiv(initialY, initialX);
         slots[2] = spot; // anchor price
-        slots[4] = 0; // last timestamp
-        slots[0] = BASE_FEE; // last bid fee
-        slots[1] = BASE_FEE; // last ask fee
-        return (BASE_FEE, BASE_FEE);
+        slots[4] = type(uint256).max; // last timestamp sentinel
+        slots[0] = HIGH_FEE; // last bid fee
+        slots[1] = HIGH_FEE; // last ask fee
+        return (HIGH_FEE, HIGH_FEE);
     }
 
     function afterSwap(TradeInfo calldata trade)
@@ -55,7 +50,7 @@ contract Strategy is AMMStrategyBase {
             anchor = spot;
         }
 
-        bool isNewStep = trade.timestamp > lastTimestamp;
+        bool isNewStep = trade.timestamp != lastTimestamp;
 
         uint256 appliedFee = trade.isBuy ? bidPrev : askPrev;
         uint256 gamma = appliedFee >= WAD ? 0 : (WAD - appliedFee);
@@ -71,21 +66,14 @@ contract Strategy is AMMStrategyBase {
         uint256 deviation = anchor > 0 ? absDiff(spot, anchor) : 0;
         uint256 deviationPct = anchor > 0 ? wdiv(deviation, anchor) : 0;
 
-        uint256 baseFee = BASE_FEE;
-        if (isNewStep) {
-            baseFee = baseFee > LOW_STEP_ADJ ? baseFee - LOW_STEP_ADJ : 0;
-        } else {
-            baseFee += HIGH_STEP_ADJ;
-        }
-
+        uint256 baseFee = isNewStep ? LOW_FEE : HIGH_FEE;
         uint256 riskAdd = wmul(deviationPct, RISK_SCALE);
         if (riskAdd > MAX_RISK) {
             riskAdd = MAX_RISK;
         }
-        uint256 sizeAdj = _sizeAdjustment(trade);
-        baseFee += riskAdd + sizeAdj;
-        if (baseFee > MAX_BASE_FEE) {
-            baseFee = MAX_BASE_FEE;
+        baseFee += riskAdd;
+        if (baseFee > MAX_FEE_CAP) {
+            baseFee = MAX_FEE_CAP;
         }
 
         uint256 skew = wmul(deviationPct, SKEW_SCALE);
@@ -138,17 +126,4 @@ contract Strategy is AMMStrategyBase {
         return previous - wmul(alphaWad, previous - value);
     }
 
-    function _sizeAdjustment(TradeInfo calldata trade) internal pure returns (uint256) {
-        uint256 ratio;
-        if (trade.isBuy) {
-            ratio = trade.reserveX == 0 ? 0 : wdiv(trade.amountX, trade.reserveX);
-        } else {
-            ratio = trade.reserveY == 0 ? 0 : wdiv(trade.amountY, trade.reserveY);
-        }
-        uint256 adj = wmul(ratio, SIZE_SCALE);
-        if (adj > MAX_SIZE_ADJ) {
-            adj = MAX_SIZE_ADJ;
-        }
-        return adj;
-    }
 }
