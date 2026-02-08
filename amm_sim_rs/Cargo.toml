@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # EVM execution - minimal features only (no c-kzg/blst which require C compiler)
 # We only need basic contract execution, not EIP-4844 blob support
-revm = { version = "18", default-features = false, features = ["std"] }
+revm = { version = "17", default-features = false, features = ["std"] }
 
 # Python bindings
 pyo3 = { version = "0.22", features = ["extension-module"] }
@@ -41,3 +41,4 @@ harness = false
 lto = true
 codegen-units = 1
 opt-level = 3
+
