@@ -7,16 +7,9 @@ import {IAMMStrategy, TradeInfo} from "./IAMMStrategy.sol";
 /// @title Adaptive Skew Strategy
 /// @notice Dynamic fee strategy that skews fees around an estimated fair price.
 contract Strategy is AMMStrategyBase {
-    uint256 private constant LOW_FEE = 20 * BPS; // 20 bps
-    uint256 private constant BASE_FEE = 30 * BPS; // 30 bps
-    uint256 private constant HIGH_FEE = 120 * BPS; // 120 bps
-    uint256 private constant MAX_FEE_CAP = 150 * BPS; // hard cap for returned fees
-
-    uint256 private constant DEAD_BAND = 5 * BPS; // 5 bps
-
-    // EMA weights in WAD
-    uint256 private constant ALPHA_NEW_STEP = 7e17; // 0.7
-    uint256 private constant ALPHA_SAME_STEP = 0; // 0.0
+    uint256 private constant BASE_LOW = 10 * BPS; // 10 bps
+    uint256 private constant BASE_HIGH = 50 * BPS; // 50 bps
+    uint256 private constant ALPHA = 1e17; // 0.10
 
     function afterInitialize(uint256 initialX, uint256 initialY)
         external
@@ -24,11 +17,10 @@ contract Strategy is AMMStrategyBase {
         returns (uint256 bidFee, uint256 askFee)
     {
         uint256 spot = initialX == 0 ? 0 : wdiv(initialY, initialX);
-        slots[2] = spot; // anchor price
-        slots[4] = type(uint256).max; // last timestamp sentinel
-        slots[0] = HIGH_FEE; // last bid fee
-        slots[1] = HIGH_FEE; // last ask fee
-        return (HIGH_FEE, HIGH_FEE);
+        slots[0] = spot; // anchor price
+        slots[1] = BASE_HIGH; // last bid fee
+        slots[2] = BASE_HIGH; // last ask fee
+        return (BASE_HIGH, BASE_HIGH);
     }
 
     function afterSwap(TradeInfo calldata trade)
@@ -36,66 +28,50 @@ contract Strategy is AMMStrategyBase {
         override
         returns (uint256 bidFee, uint256 askFee)
     {
-        uint256 bidPrev = slots[0];
-        uint256 askPrev = slots[1];
-        uint256 anchor = slots[2];
-        uint256 lastTimestamp = slots[4];
+        uint256 anchor = slots[0];
+        uint256 lastBid = slots[1];
+        uint256 lastAsk = slots[2];
 
         uint256 spot = trade.reserveX == 0 ? 0 : wdiv(trade.reserveY, trade.reserveX);
         if (anchor == 0) {
             anchor = spot;
         }
 
-        bool isNewStep = trade.timestamp != lastTimestamp;
-
-        uint256 appliedFee = trade.isBuy ? bidPrev : askPrev;
+        uint256 appliedFee = trade.isBuy ? lastBid : lastAsk;
         uint256 gamma = appliedFee >= WAD ? 0 : (WAD - appliedFee);
         uint256 target = spot;
         if (gamma > 0) {
             target = trade.isBuy ? wmul(gamma, spot) : wdiv(spot, gamma);
         }
 
-        uint256 alpha = isNewStep ? ALPHA_NEW_STEP : ALPHA_SAME_STEP;
-        anchor = _ema(anchor, target, alpha);
-        slots[2] = anchor;
+        anchor = _ema(anchor, target, ALPHA);
+        slots[0] = anchor;
 
-        uint256 deviation = anchor > 0 ? absDiff(spot, anchor) : 0;
-        uint256 deviationPct = anchor > 0 ? wdiv(deviation, anchor) : 0;
-
-        uint256 baseFee = isNewStep ? LOW_FEE : BASE_FEE;
-
-        if (deviationPct <= DEAD_BAND) {
-            bidFee = baseFee;
-            askFee = baseFee;
-        } else if (spot >= anchor) {
-            // Overpriced: favor selling X (lower ask), block buying X (higher bid).
-            askFee = baseFee;
-            bidFee = HIGH_FEE;
+        if (spot >= anchor) {
+            uint256 ratio = wdiv(anchor, spot);
+            uint256 blockFee = WAD > ratio ? (WAD - ratio) : 0;
+            if (blockFee < BASE_HIGH) blockFee = BASE_HIGH;
+            bidFee = blockFee;
+            askFee = BASE_LOW;
         } else {
-            // Underpriced: favor buying X (lower bid), block selling X (higher ask).
-            bidFee = baseFee;
-            askFee = HIGH_FEE;
-        }
-
-        if (bidFee > MAX_FEE_CAP) {
-            bidFee = MAX_FEE_CAP;
-        }
-        if (askFee > MAX_FEE_CAP) {
-            askFee = MAX_FEE_CAP;
+            uint256 ratio = wdiv(spot, anchor);
+            uint256 blockFee = WAD > ratio ? (WAD - ratio) : 0;
+            if (blockFee < BASE_HIGH) blockFee = BASE_HIGH;
+            askFee = blockFee;
+            bidFee = BASE_LOW;
         }
 
         bidFee = clampFee(bidFee);
         askFee = clampFee(askFee);
 
-        slots[0] = bidFee;
-        slots[1] = askFee;
-        slots[4] = trade.timestamp;
+        slots[1] = bidFee;
+        slots[2] = askFee;
 
         return (bidFee, askFee);
     }
 
     function getName() external pure override returns (string memory) {
-        return "AdaptiveSkewStrategy_v1";
+        return "BlockArb_v1";
     }
 
     function _ema(uint256 previous, uint256 value, uint256 alphaWad)
