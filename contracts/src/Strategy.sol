@@ -4,29 +4,9 @@ pragma solidity ^0.8.24;
 import {AMMStrategyBase} from "./AMMStrategyBase.sol";
 import {IAMMStrategy, TradeInfo} from "./IAMMStrategy.sol";
 
-/// @title Combined Block + Affine Strategy
-/// @notice Blends pHat inference, vol tracking, and arb-blocking fees.
+/// @title Affine Favorable + Same-step Oracle Update
+/// @notice Robust affine strategy with same-step pHat smoothing.
 contract Strategy is AMMStrategyBase {
-    // EMA parameters (WAD)
-    uint256 private constant EMA_NEW = 25e16; // 0.25
-    uint256 private constant EMA_SAME = 1e16; // 0.01
-    uint256 private constant VOL_ALPHA = 2e17; // 0.20
-
-    // Favorable side fee curve (bps)
-    uint256 private constant FAVOR_MAX = 20;
-    uint256 private constant FAVOR_MIN = 1;
-    uint256 private constant FAVOR_DEV_LOW = 8;
-    uint256 private constant FAVOR_DEV_HIGH = 50;
-
-    // Adverse side fee floor (bps)
-    uint256 private constant ADV_VOL_W = 12;
-    uint256 private constant ADV_DEV_W = 7;
-    uint256 private constant ADV_FLOOR = 38;
-    uint256 private constant ADV_STEP_BONUS = 4;
-
-    // Arb-blocking floor (bps)
-    uint256 private constant BLOCK_FLOOR = 35;
-    uint256 private constant BLOCK_BUFFER = 0;
 
     function afterInitialize(uint256 initialX, uint256 initialY)
         external
@@ -34,14 +14,17 @@ contract Strategy is AMMStrategyBase {
         returns (uint256 bidFee, uint256 askFee)
     {
         uint256 spot = initialX == 0 ? 0 : wdiv(initialY, initialX);
-        slots[0] = spot; // pHat
-        slots[1] = spot; // prev spot
-        slots[2] = 0; // ema abs move
-        slots[3] = 0; // last timestamp
-        slots[4] = bpsToWad(15); // last bid
-        slots[5] = bpsToWad(95); // last ask
-        slots[6] = 0; // phase
-        return (slots[4], slots[5]);
+        slots[0] = spot;
+        slots[1] = spot;
+        slots[2] = 0;
+        slots[3] = 0;
+
+        uint256 initFee = bpsToWad(15);
+        slots[4] = initFee;
+        slots[5] = bpsToWad(95);
+        slots[6] = 0;
+
+        return (initFee, bpsToWad(95));
     }
 
     function afterSwap(TradeInfo calldata trade)
@@ -52,13 +35,18 @@ contract Strategy is AMMStrategyBase {
         uint256 spot = trade.reserveX == 0 ? 0 : wdiv(trade.reserveY, trade.reserveX);
         uint256 pHat = slots[0];
         if (pHat == 0) pHat = spot;
+
         uint256 prevSpot = slots[1];
         if (prevSpot == 0) prevSpot = spot;
+
         uint256 emaAbsMove = slots[2];
         uint256 lastTs = slots[3];
         uint256 lastBid = slots[4];
         uint256 lastAsk = slots[5];
         uint256 phase = slots[6];
+
+        if (lastBid == 0) lastBid = bpsToWad(15);
+        if (lastAsk == 0) lastAsk = bpsToWad(95);
 
         uint256 ts = trade.timestamp;
         uint256 dt = ts > lastTs ? (ts - lastTs) : 0;
@@ -67,60 +55,50 @@ contract Strategy is AMMStrategyBase {
         if (gamma != 0) {
             uint256 pImplied = trade.isBuy ? wmul(spot, gamma) : wdiv(spot, gamma);
             if (dt > 0) {
-                pHat = wmul(pHat, WAD - EMA_NEW) + wmul(pImplied, EMA_NEW);
+                pHat = wmul(pHat, WAD - 25e16) + wmul(pImplied, 25e16);
                 phase = 0;
             } else {
                 if (phase < 10) phase += 1;
-                pHat = wmul(pHat, WAD - EMA_SAME) + wmul(pImplied, EMA_SAME);
+                pHat = wmul(pHat, WAD - 1e16) + wmul(pImplied, 1e16);
             }
         } else if (dt == 0) {
             if (phase < 10) phase += 1;
         }
 
         uint256 absMove = prevSpot == 0 ? 0 : wdiv(absDiff(spot, prevSpot), prevSpot);
-        emaAbsMove = wmul(emaAbsMove, WAD - VOL_ALPHA) + wmul(absMove, VOL_ALPHA);
+        emaAbsMove = wmul(emaAbsMove, WAD - 2e17) + wmul(absMove, 2e17);
 
         uint256 volBps = wadToBps(emaAbsMove);
         uint256 relDev = pHat == 0 ? 0 : wdiv(absDiff(spot, pHat), pHat);
         uint256 devBps = wadToBps(relDev);
 
-        uint256 adverseBps = (devBps * ADV_DEV_W) / 10 + (volBps * ADV_VOL_W) / 10;
-        if (dt > 0) adverseBps += ADV_STEP_BONUS;
-        if (adverseBps < ADV_FLOOR) adverseBps = ADV_FLOOR;
+        uint256 adverseBps = (devBps * 7) / 10 + (volBps * 12) / 10;
+        if (dt > 0) {
+            adverseBps += 4;
+        }
+        if (adverseBps < 38) adverseBps = 38;
 
         uint256 favorBps;
-        if (devBps <= FAVOR_DEV_LOW) {
-            favorBps = FAVOR_MAX;
-        } else if (devBps >= FAVOR_DEV_HIGH) {
-            favorBps = FAVOR_MIN;
+        if (devBps <= 8) {
+            favorBps = 20;
+        } else if (devBps >= 50) {
+            favorBps = 1;
         } else {
-            favorBps =
-                FAVOR_MAX
-                - (devBps - FAVOR_DEV_LOW) * (FAVOR_MAX - FAVOR_MIN)
-                / (FAVOR_DEV_HIGH - FAVOR_DEV_LOW);
+            favorBps = 20 - (devBps - 8) * (20 - 1) / (50 - 8);
         }
 
-        uint256 adverse = clampFee(bpsToWad(adverseBps));
         uint256 favor = bpsToWad(favorBps);
+        uint256 adverse = clampFee(bpsToWad(adverseBps));
 
-        if (spot >= pHat) {
-            uint256 ratio = wdiv(pHat, spot);
-            uint256 blockFee = WAD > ratio ? (WAD - ratio) : 0;
-            blockFee = blockFee + bpsToWad(BLOCK_BUFFER);
-            uint256 blockFloor = bpsToWad(BLOCK_FLOOR);
-            if (blockFee < blockFloor) blockFee = blockFloor;
-            uint256 adv = blockFee > adverse ? blockFee : adverse;
-            bidFee = adv;
+        if (devBps < 8) {
+            bidFee = bpsToWad(28);
+            askFee = bpsToWad(28);
+        } else if (spot > pHat) {
             askFee = favor;
+            bidFee = adverse;
         } else {
-            uint256 ratio = wdiv(spot, pHat);
-            uint256 blockFee = WAD > ratio ? (WAD - ratio) : 0;
-            blockFee = blockFee + bpsToWad(BLOCK_BUFFER);
-            uint256 blockFloor = bpsToWad(BLOCK_FLOOR);
-            if (blockFee < blockFloor) blockFee = blockFloor;
-            uint256 adv = blockFee > adverse ? blockFee : adverse;
-            askFee = adv;
             bidFee = favor;
+            askFee = adverse;
         }
 
         bidFee = clampFee(bidFee);
@@ -138,7 +116,7 @@ contract Strategy is AMMStrategyBase {
     }
 
     function getName() external pure override returns (string memory) {
-        return "CombinedBlockAffine_v1";
+        return "AffinePlusSame1";
     }
 
     function _ema(uint256 previous, uint256 value, uint256 alphaWad)
