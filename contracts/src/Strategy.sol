@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {AMMStrategyBase} from "./contracts/src/AMMStrategyBase.sol";
-import {IAMMStrategy, TradeInfo} from "./contracts/src/IAMMStrategy.sol";
+import {AMMStrategyBase} from "./AMMStrategyBase.sol";
+import {IAMMStrategy, TradeInfo} from "./IAMMStrategy.sol";
 
 /// @title Adaptive Skew Strategy
 /// @notice Dynamic fee strategy that skews fees around an estimated fair price.
