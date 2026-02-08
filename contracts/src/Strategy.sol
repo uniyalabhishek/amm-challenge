@@ -7,16 +7,12 @@ import {IAMMStrategy, TradeInfo} from "./IAMMStrategy.sol";
 /// @title Adaptive Skew Strategy
 /// @notice Dynamic fee strategy that skews fees around an estimated fair price.
 contract Strategy is AMMStrategyBase {
-    uint256 private constant LOW_FEE = 3 * BPS; // 3 bps
-    uint256 private constant HIGH_FEE = 45 * BPS; // 45 bps
-    uint256 private constant MAX_FEE_CAP = 120 * BPS; // hard cap for returned fees
+    uint256 private constant LOW_FEE = 20 * BPS; // 20 bps
+    uint256 private constant BASE_FEE = 30 * BPS; // 30 bps
+    uint256 private constant HIGH_FEE = 120 * BPS; // 120 bps
+    uint256 private constant MAX_FEE_CAP = 150 * BPS; // hard cap for returned fees
 
-    uint256 private constant MAX_RISK = 15 * BPS;
-    uint256 private constant MAX_SKEW = 40 * BPS;
-
-    // Scale factors in WAD (1e18)
-    uint256 private constant RISK_SCALE = 5e17; // 0.5
-    uint256 private constant SKEW_SCALE = 25e17; // 2.5
+    uint256 private constant DEAD_BAND = 5 * BPS; // 5 bps
 
     // EMA weights in WAD
     uint256 private constant ALPHA_NEW_STEP = 7e17; // 0.7
@@ -66,29 +62,19 @@ contract Strategy is AMMStrategyBase {
         uint256 deviation = anchor > 0 ? absDiff(spot, anchor) : 0;
         uint256 deviationPct = anchor > 0 ? wdiv(deviation, anchor) : 0;
 
-        uint256 baseFee = isNewStep ? LOW_FEE : HIGH_FEE;
-        uint256 riskAdd = wmul(deviationPct, RISK_SCALE);
-        if (riskAdd > MAX_RISK) {
-            riskAdd = MAX_RISK;
-        }
-        baseFee += riskAdd;
-        if (baseFee > MAX_FEE_CAP) {
-            baseFee = MAX_FEE_CAP;
-        }
+        uint256 baseFee = isNewStep ? LOW_FEE : BASE_FEE;
 
-        uint256 skew = wmul(deviationPct, SKEW_SCALE);
-        if (skew > MAX_SKEW) {
-            skew = MAX_SKEW;
-        }
-
-        if (spot >= anchor) {
-            // Overpriced: favor selling X (lower ask), penalize buying X (higher bid).
-            askFee = baseFee > skew ? baseFee - skew : 0;
-            bidFee = baseFee + skew;
+        if (deviationPct <= DEAD_BAND) {
+            bidFee = baseFee;
+            askFee = baseFee;
+        } else if (spot >= anchor) {
+            // Overpriced: favor selling X (lower ask), block buying X (higher bid).
+            askFee = baseFee;
+            bidFee = HIGH_FEE;
         } else {
-            // Underpriced: favor buying X (lower bid), penalize selling X (higher ask).
-            bidFee = baseFee > skew ? baseFee - skew : 0;
-            askFee = baseFee + skew;
+            // Underpriced: favor buying X (lower bid), block selling X (higher ask).
+            bidFee = baseFee;
+            askFee = HIGH_FEE;
         }
 
         if (bidFee > MAX_FEE_CAP) {
