@@ -7,19 +7,21 @@ import {IAMMStrategy, TradeInfo} from "./IAMMStrategy.sol";
 /// @title Adaptive Skew Strategy
 /// @notice Dynamic fee strategy that skews fees around an estimated fair price.
 contract Strategy is AMMStrategyBase {
-    uint256 private constant BASE_FEE = 10 * BPS; // 10 bps
-    uint256 private constant MAX_BASE_FEE = 45 * BPS; // soft cap for base fee
-    uint256 private constant MAX_FEE_CAP = 80 * BPS; // hard cap for returned fees
+    uint256 private constant BASE_FEE = 8 * BPS; // 8 bps
+    uint256 private constant MAX_BASE_FEE = 70 * BPS; // soft cap for base fee
+    uint256 private constant MAX_FEE_CAP = 120 * BPS; // hard cap for returned fees
 
-    uint256 private constant LOW_STEP_ADJ = 3 * BPS;
-    uint256 private constant HIGH_STEP_ADJ = 6 * BPS;
+    uint256 private constant LOW_STEP_ADJ = 4 * BPS;
+    uint256 private constant HIGH_STEP_ADJ = 18 * BPS;
 
-    uint256 private constant MAX_RISK = 20 * BPS;
-    uint256 private constant MAX_SKEW = 25 * BPS;
+    uint256 private constant MAX_RISK = 30 * BPS;
+    uint256 private constant MAX_SKEW = 45 * BPS;
+    uint256 private constant MAX_SIZE_ADJ = 20 * BPS;
 
     // Scale factors in WAD (1e18)
-    uint256 private constant RISK_SCALE = 6e17; // 0.6
-    uint256 private constant SKEW_SCALE = 12e17; // 1.2
+    uint256 private constant RISK_SCALE = 8e17; // 0.8
+    uint256 private constant SKEW_SCALE = 16e17; // 1.6
+    uint256 private constant SIZE_SCALE = 5e17; // 0.5
 
     // EMA weights in WAD
     uint256 private constant ALPHA_NEW_STEP = 25e16; // 0.25
@@ -80,7 +82,8 @@ contract Strategy is AMMStrategyBase {
         if (riskAdd > MAX_RISK) {
             riskAdd = MAX_RISK;
         }
-        baseFee += riskAdd;
+        uint256 sizeAdj = _sizeAdjustment(trade);
+        baseFee += riskAdd + sizeAdj;
         if (baseFee > MAX_BASE_FEE) {
             baseFee = MAX_BASE_FEE;
         }
@@ -133,5 +136,19 @@ contract Strategy is AMMStrategyBase {
             return previous + wmul(alphaWad, value - previous);
         }
         return previous - wmul(alphaWad, previous - value);
+    }
+
+    function _sizeAdjustment(TradeInfo calldata trade) internal pure returns (uint256) {
+        uint256 ratio;
+        if (trade.isBuy) {
+            ratio = trade.reserveX == 0 ? 0 : wdiv(trade.amountX, trade.reserveX);
+        } else {
+            ratio = trade.reserveY == 0 ? 0 : wdiv(trade.amountY, trade.reserveY);
+        }
+        uint256 adj = wmul(ratio, SIZE_SCALE);
+        if (adj > MAX_SIZE_ADJ) {
+            adj = MAX_SIZE_ADJ;
+        }
+        return adj;
     }
 }
