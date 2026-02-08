@@ -7,25 +7,25 @@ import {IAMMStrategy, TradeInfo} from "./IAMMStrategy.sol";
 /// @title Adaptive Skew Strategy
 /// @notice Dynamic fee strategy that skews fees around an estimated fair price.
 contract Strategy is AMMStrategyBase {
-    uint256 private constant BASE_FEE = 8 * BPS; // 8 bps
-    uint256 private constant MAX_BASE_FEE = 70 * BPS; // soft cap for base fee
+    uint256 private constant BASE_FEE = 6 * BPS; // 6 bps
+    uint256 private constant MAX_BASE_FEE = 60 * BPS; // soft cap for base fee
     uint256 private constant MAX_FEE_CAP = 120 * BPS; // hard cap for returned fees
 
     uint256 private constant LOW_STEP_ADJ = 4 * BPS;
-    uint256 private constant HIGH_STEP_ADJ = 18 * BPS;
+    uint256 private constant HIGH_STEP_ADJ = 10 * BPS;
 
-    uint256 private constant MAX_RISK = 30 * BPS;
-    uint256 private constant MAX_SKEW = 45 * BPS;
+    uint256 private constant MAX_RISK = 20 * BPS;
+    uint256 private constant MAX_SKEW = 50 * BPS;
     uint256 private constant MAX_SIZE_ADJ = 20 * BPS;
 
     // Scale factors in WAD (1e18)
-    uint256 private constant RISK_SCALE = 8e17; // 0.8
-    uint256 private constant SKEW_SCALE = 16e17; // 1.6
-    uint256 private constant SIZE_SCALE = 5e17; // 0.5
+    uint256 private constant RISK_SCALE = 1e18; // 1.0
+    uint256 private constant SKEW_SCALE = 2e18; // 2.0
+    uint256 private constant SIZE_SCALE = 6e17; // 0.6
 
     // EMA weights in WAD
-    uint256 private constant ALPHA_NEW_STEP = 25e16; // 0.25
-    uint256 private constant ALPHA_SAME_STEP = 5e16; // 0.05
+    uint256 private constant ALPHA_NEW_STEP = 6e17; // 0.6
+    uint256 private constant ALPHA_SAME_STEP = 1e16; // 0.01
 
     function afterInitialize(uint256 initialX, uint256 initialY)
         external
