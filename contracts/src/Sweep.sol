@@ -42,9 +42,9 @@ contract Strategy is AMMStrategyBase {
         if (dt > 0) adverseBps += 3;
         if (adverseBps < 40) adverseBps = 40;
         uint256 favorBps;
-        if (devBps <= 8) { favorBps = 18; }
+        if (devBps <= 8) { favorBps = 19; }
         else if (devBps >= 50) { favorBps = 1; }
-        else { favorBps = 18 - (devBps - 8) * (18 - 1) / (50 - 8); }
+        else { favorBps = 19 - (devBps - 8) * (19 - 1) / (50 - 8); }
         uint256 favor = bpsToWad(favorBps);
         uint256 adverse = clampFee(bpsToWad(adverseBps));
         uint256 newDir = spot > pHat ? 1 : 0;
