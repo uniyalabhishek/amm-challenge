@@ -183,6 +183,9 @@ amm-match run my_strategy.sol --simulations 10
 
 # Validate without running
 amm-match validate my_strategy.sol
+
+# Multi-seed benchmark (recommended for tuning)
+python3 scripts/benchmark.py my_strategy.sol --sims 100 --seeds 5 --seed-spacing 10000 --workers 2
 ```
 
 Output is your average edge across simulations. The 30 bps normalizer typically scores around 250-350 edge depending on market conditions.
