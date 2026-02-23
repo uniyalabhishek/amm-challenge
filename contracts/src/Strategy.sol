@@ -41,17 +41,17 @@ contract Strategy is AMMStrategyBase {
     uint256 private constant TOX_BLEND_DECAY = 51000000000000000; // 0.051
     uint256 private constant ACT_BLEND_DECAY = 985000000000000000; // 0.985
     uint256 private constant PHAT_ALPHA = 260000000000000000; // 0.26
-    uint256 private constant PHAT_ALPHA_RETAIL = 50000000000000000; // 0.05
+    uint256 private constant PHAT_ALPHA_RETAIL = 56931407448579560; // tuned
     uint256 private constant DIR_IMPACT_MULT = 2;
 
     // --- adaptive shock gate ---
-    uint256 private constant GATE_SIGMA_MULT = 10 * WAD;
+    uint256 private constant GATE_SIGMA_MULT = 7 * WAD;
     uint256 private constant MIN_GATE = 30000000000000000; // 0.03
 
     // --- toxicity nonlinearities ---
-    uint256 private constant TOX_CUBIC_COEF = 15000 * BPS;
+    uint256 private constant TOX_CUBIC_COEF = 12287 * BPS;
     uint256 private constant TRADE_TOX_BOOST = 2500 * BPS;
-    uint256 private constant STALE_ATTRACT_FRAC = 1124000000000000000; // 1.124
+    uint256 private constant STALE_ATTRACT_FRAC = 1058258440867852160; // tuned
 
     // --- caps ---
     uint256 private constant RET_CAP = WAD / 10; // 10%
@@ -64,17 +64,17 @@ contract Strategy is AMMStrategyBase {
     uint256 private constant BASE_FEE = 3 * BPS;
     uint256 private constant SIGMA_COEF = 200000000000000000; // 0.20
     uint256 private constant LAMBDA_COEF = 12 * BPS;
-    uint256 private constant FLOW_SIZE_COEF = 4842 * BPS;
+    uint256 private constant FLOW_SIZE_COEF = 5350 * BPS;
     uint256 private constant TOX_COEF = 250 * BPS;
-    uint256 private constant TOX_QUAD_COEF = 11700 * BPS;
-    uint256 private constant ACT_COEF = 91843 * BPS;
+    uint256 private constant TOX_QUAD_COEF = 14475 * BPS;
+    uint256 private constant ACT_COEF = 80689 * BPS;
     uint256 private constant DIR_COEF = 20 * BPS;
     uint256 private constant DIR_TOX_COEF = 100 * BPS;
     uint256 private constant STALE_DIR_COEF = 6850 * BPS;
-    uint256 private constant SIGMA_TOX_COEF = 500 * BPS;
+    uint256 private constant SIGMA_TOX_COEF = 544 * BPS;
     uint256 private constant TAIL_KNEE = 500 * BPS;
-    uint256 private constant TAIL_SLOPE_PROTECT = 930000000000000000; // 0.93
-    uint256 private constant TAIL_SLOPE_ATTRACT = 955000000000000000; // 0.955
+    uint256 private constant TAIL_SLOPE_PROTECT = 945561485329683200; // tuned
+    uint256 private constant TAIL_SLOPE_ATTRACT = 900000000000000000; // tuned
 
     function afterInitialize(uint256 initialX, uint256 initialY)
         external
